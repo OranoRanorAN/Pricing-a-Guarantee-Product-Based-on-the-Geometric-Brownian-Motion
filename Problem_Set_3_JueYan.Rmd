@@ -1,0 +1,235 @@
+---
+title: "Problem Set 3"
+author: 'Yan Jue'
+date: '2023-05-14'
+output: 
+  html_document: 
+    toc: yes
+  pdf_document: 
+    toc: yes
+---
+# Problem Set 3
+
+```{r setup, include=FALSE}
+library(YieldCurve)
+yc.data <- read.csv2("YieldCurve.csv", header = TRUE, stringsAsFactors=FALSE)
+names(yc.data) <- c("maturity","June2022")
+yc.data$June2022 <- as.numeric(yc.data$June2022)
+```
+## Exercise 1: Nelson-Siegel-Svensson Model
+
+### a). Use the interest rate data in the file YieldCurve.csv to estimate the Nelson-Siegel- Svensson yield curve model. Report your parameter estimates 
+```{r ex1a}
+yields <- yc.data$June2022                  
+maturity <- c(3/12,6/12,9/12, seq(1,30,1))
+
+b0 <- Svensson(yields, maturity)[1]
+b1 <- Svensson(yields, maturity)[2]
+b2 <- Svensson(yields, maturity)[3]
+b3 <- Svensson(yields, maturity)[4]
+lambda1 <- 1/Svensson(yields, maturity)[5]
+lambda2 <- 1/Svensson(yields, maturity)[6]
+
+print(data.frame(b0,b1,b2,b3,lambda1,lambda2))
+```
+
+### b). Based on your estimated model parameters from a), program an R function that returns the spot interest rate for any maturity T. Plot your spot yield curve
+```{r ex1b,fig.height=4, fig.width=9}
+# the R function that returns the spot interest rate for any maturity T
+y0 <- function(T){
+  F1 <- (1-exp(-lambda1*T))/(lambda1*T)
+  F2 <- (1-exp(-lambda1*T))/(lambda1*T) - exp(-lambda1*T)
+  F3 <- (1-exp(-lambda2*T))/(lambda2*T) - exp(-lambda2*T)
+  b0 + b1*F1 + b2*F2 + b3*F3}
+
+# plot the spot yield curve
+plot(maturity, yields, type = "p", cex = 1.25, 
+     xaxs = "i", yaxs = "i", pch = 21, col = "black", bg = "darkgreen",
+     main = "Spot Yield Curve (June 2022)",
+     xlim = c(0,31), ylim = c(-0.5,2),
+     cex.axis = 1, cex.lab = 1, cex.main = 1.2, 
+     xlab = "Maturity (in years)",
+     ylab = "Yield in %")
+lines(maturity, y0(maturity), col = "darkgreen", lwd = 2)
+```
+
+### c). Use your spot yield curve function from b) to program an R function for arbitrage- free forward rates with an effective date T1 and a termination date T2. Plot the forward curve for effective date T = 1
+```{r ex1c,fig.height=3.5, fig.width=9}
+# the R Function for arbitrage-free forward rates (T2 > T1)
+f0 <- function(T1,T2){(y0(T2)*T2-y0(T1)*T1)/(T2-T1)}
+
+# Plot the forward curve for T = 1
+m <- seq(0.25,30,0.1)
+plot(m, f0(1,1+m), type = "l", cex = 1.25, 
+     xaxs = "i", yaxs = "i", lwd = 3, col = "darkgreen",
+     main = "One-Year Forward Curve (June 2022)",
+     xlim = c(0,30), ylim = c(0.4,1.5),
+     cex.axis = 1, cex.lab = 1, cex.main = 1.2, 
+     xlab = "Termination Date (in years)",
+     ylab = "Yield in %")
+```
+
+### d). Based on your estimated model parameters from a), program an R function that returns the instantaneous forward rate for any effective date T. Plot your instantaneous forward curve.
+```{r ex1d,fig.height=4, fig.width=9}
+# the R function that returns the instantaneous forward rate for any effective date T
+f0inst <- function(T){
+        F1 <- exp(-lambda1*T)
+        F2 <- exp(-lambda1*T)*lambda1*T
+        F3 <- exp(-lambda2*T)*lambda2*T
+        b0 + b1*F1 + b2*F2 + b3*F3}
+
+# Plot the instantaneous forward curve.
+plot(m, f0inst(m), type = "l", cex = 1.25, 
+     xaxs = "i", yaxs = "i", lwd = 3, col = "darkgreen",
+     main = "Instantaneous Forward Curve (June 2022)",
+     xlim = c(0,30), ylim = c(-0.5,1.8),
+     cex.axis = 1, cex.lab = 1, cex.main = 1.2, 
+     xlab = "Maturity (in years)",
+     ylab = "Yield in %")
+```
+
+## Exercise 2: Hull-White Model
+
+### a).Simulate and plot 1000 short rate paths over 10 years with a step size of 365 days per year. Include the instantaneous forward rate curve in your plot.
+```{r ex2a}
+alpha <- 0.5                        
+sigma <- 0.8
+paths <- 1000                           
+T <- 10                                 
+n <- 365                               
+dt <- rep(1/n,T*n)                      
+t <- c(0,cumsum(dt))                    
+r0 <- y0(1/n)
+
+df0inst_dt <- function(T){
+  -lambda1*exp(-lambda1*T)*(b1 - b2 + b2*lambda1*T)
+  +lambda2*exp(-lambda2*T)*(b3 - b3*lambda2*T)}
+
+set.seed(13)
+rt <- matrix(NA, paths, length(dt)+1)  
+rt[,1] <- r0                           
+
+for(j in 1:length(rt[,1])){ 
+for(i in 2:length(rt[1,])){ 
+        theta <-  df0inst_dt(t[i-1]) + alpha*f0inst(t[i-1])
+        dW <- sqrt(dt[1])*rnorm(n = 1, mean = 0, sd = 1)   
+        rt[j,i] <- rt[j,i-1] + (theta - alpha*rt[j,i-1])*dt[1] + sigma*dW}}
+```
+
+```{r ex2aplot, echo=TRUE, fig.height=5, fig.width=9}
+plot(t, rt[1,], type = "l", lwd = 1, xlim = c(0,10), ylim = c(-4,8), 
+     xaxs = "i", yaxs = "i", col = "darkgrey",
+     cex.axis = 1, cex.lab = 1, cex.main = 1.5, 
+     xlab = "Time in Years (Paths) / Maturity in Years (Inst. Forward Curve)",
+     ylab = "Interest Rate in %")
+for(i in 2:length(rt[,1])){lines(t, rt[i,], lwd = 1, col = "darkgrey")}
+lines(t, rt[1,], lwd = 1, col = "black")
+lines(c(0,m), f0inst(c(0,m)), lwd = 4, col = "darkgreen")
+legend("topleft",c("Short Rate Paths", "Inst. Forward Curve"), pch=c(NA,NA), 
+lty = c(1,1), lwd = 3, col = c("darkgrey", "darkgreen"),
+bty = TRUE, bg=FALSE, cex=1, box.col=TRUE, horiz=FALSE)
+```
+
+### b). Create a histogram of the short rate in one year, in five years and in ten years. Overlay the probability density function (pdf) of a normal distribution with a matching mean and standard deviation. 
+```{r ex2b,fig.height=9, fig.width=9, echo=FALSE}
+par(mfrow=c(3,1))
+data = rt[2:length(rt[,1]),t == 1]
+hist(data, breaks = 20, col = "darkgrey", xaxs = "i", yaxs = "i", 
+     main = "Histogram of short rate in one year", freq = FALSE, 
+     ylim = c(0,1), 
+     xlim = c(-6,6),
+     cex.axis = 1.2, cex.lab = 1.2, cex.main = 1.5, 
+     xlab = 'Interest Rate in %')
+x<-seq(-5,5,length.out=100)
+y<-dnorm(x,mean(data),sd(data))
+lines(x,y,col='darkgreen',lwd = 3)
+legend("topleft",c("Short Rate", "PDF of normal distribution"), pch=c(NA,NA), 
+lty = c(1,1), lwd = 3, col = c("darkgrey", "darkgreen"),
+bty = TRUE, bg=FALSE, cex=1, box.col=TRUE, horiz=FALSE)
+
+data = rt[2:length(rt[,1]),t == 5]
+hist(data, breaks = 20, col = "darkgrey", xaxs = "i", yaxs = "i", 
+     main = "Histogram of short rate in five years", freq = FALSE, 
+     ylim = c(0,1), 
+     xlim = c(-6,6),
+     cex.axis = 1.2, cex.lab = 1.2, cex.main = 1.5, 
+     xlab = 'Interest Rate in %')
+x<-seq(-5,5,length.out=100)
+y<-dnorm(x,mean(data),sd(data))
+lines(x,y,col='darkgreen',lwd = 3)
+legend("topleft",c("Short Rate", "PDF of normal distribution"), pch=c(NA,NA), 
+lty = c(1,1), lwd = 3, col = c("darkgrey", "darkgreen"),
+bty = TRUE, bg=FALSE, cex=1, box.col=TRUE, horiz=FALSE)
+
+data = rt[2:length(rt[,1]),t == 10]
+hist(data, breaks = 20, col = "darkgrey", xaxs = "i", yaxs = "i", 
+     main = "Histogram of short rate in ten years", freq = FALSE, 
+     ylim = c(0,1), 
+     xlim = c(-6,6),
+     cex.axis = 1.2, cex.lab = 1.2, cex.main = 1.5, 
+     xlab = 'Interest Rate in %')
+x<-seq(-5,5,length.out=100)
+y<-dnorm(x,mean(data),sd(data))
+lines(x,y,col='darkgreen',lwd = 3)
+legend("topleft",c("Short Rate", "PDF of normal distribution"), pch=c(NA,NA), 
+lty = c(1,1), lwd = 3, col = c("darkgrey", "darkgreen"),
+bty = TRUE, bg=FALSE, cex=1, box.col=TRUE, horiz=FALSE)
+```
+- The **longer** the T, the **larger** the standard deviation and the mean of the short rate.
+
+### c).Compute the *expected* price of a zero-coupon bond with a maturity of one year in three years from now.
+```{r ex2c}
+t = 3
+T = 1+3
+price <- function(t,T,j){
+        # Initial zero bond prices (from current term structure)
+        P0T <- exp(-y0(T)*T)
+        P0t <- exp(-y0(t)*t)
+        # B coefficient
+        B <- (1 - exp(-alpha*(T-t)))/alpha
+        # C coefficient (introduced here to simplify lnA)
+        C <- (exp(-alpha*T) - exp(-alpha*t))^2*(exp(2*alpha*t)-1)
+        # A coefficient
+        lnA <-log(P0T/P0t) + B*f0inst(t)/100 - 1/(4*alpha^3)*sigma^2/100*C
+        # translate t into index to select adequate short rate from matrix rt
+        x <- ceiling(t/dt[1])
+        # Zero prices at future time t            
+        PtT <- exp(lnA)*exp(-B*rt[j,x]/100)
+        return(PtT)
+}
+prices = c()
+for(i in 1:paths){
+  prices[i] = price(t,T,i)
+}
+paste('the expected price of a zero-coupon bond with maturity T = 1 that pays back $1 is'
+      , round(mean(prices),4))
+```
+
+### Use the Hull-White model to price the caplet.
+
+```{r ex2d}
+# input
+tk1 = 3
+tk = 2
+deltat = tk1 - tk
+N = 1000000
+yx = 0.015
+#yx = 1.5
+s = ceiling(n*tk1+1)    #locate position of t_k1 in rt
+
+y23 = c()
+ctk1 = c()
+rbar = rep(NA, paths)
+
+for(i in 1:paths){
+  y23[i] = -log(price(2,3,i))/(tk1-tk)
+  ctk1[i] = N * deltat * max((y23[i]-yx)/100,0)
+  rbar[i] = mean(rt[i,1:s]/100) 
+}
+
+c0 = mean(exp(-rbar*tk1)*ctk1)
+#300.255 p = mean(ctk1)/(1+y0(tk1))^tk1
+
+paste('the price of the caplet should be',round(c0,4))
+```
+
